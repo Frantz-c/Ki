@@ -1,16 +1,11 @@
 #!/usr/bin/php
 <?php
 
-/*
-** "ki"
-**
-**  ki [-d=directory]? [-v]? [-a]? [-rec=\d]?
-*/
+
+require "/home/frantz/SCRIPTS/cliarg.php";
 
 
-require "/home/frantz/SCRIPTS/cmdArg.php";
-
-$args = [
+$arguments = [
   "dir" => ".", 
   "ver" => false, 
   "all" => false, 
@@ -18,7 +13,7 @@ $args = [
   "ext" => ".*"
 ];
 
-$defArgs = [
+$expected = [
   'd:' => 'directory',
   'v' => 'verbose',
   'a' => 'all',
@@ -31,49 +26,51 @@ $error = [];
 
 $nb_files = array(0, 0);
 
-$cmdArg = new CmdArg($defArgs, $argv);
-$defArgs = $cmdArg->check($error);
+$cliarg = new Cliarg($expected, $argv);
+$expected = $cliarg->check($error);
 
-if ($defArgs === ARG_ERROR)
+if ($expected === ARG_ERROR)
 {
-  echo "\e[1m\e[7;31m";
+  echo "\e[0;31m";
   foreach ($error as $e) {
     echo "Argument '$e' incorrect !" . PHP_EOL;
   }
   echo "\e[0m";
   return ARG_ERROR;
 }
-else if ($defArgs === USR_ERROR) return USR_ERROR;
-else if ($defArgs['h'] === true) {
-  echo help();
+else if ($expected === USR_ERROR) return USR_ERROR;
+else if ($expected['h'] === true) {
+  echo Help();
   return 0;
 }
 
-if (isset($defArgs['d'])) $args['dir'] = $defArgs['d'];
-if (isset($defArgs['r'])) $args['rec'] = (int)$defArgs['r'];
-if (isset($defArgs['e'])) $args['ext'] = $defArgs['e'];
-$args['ver'] = $defArgs['v'];
-$args['all'] = $defArgs['a'];
+if (isset($expected['d'])) $arguments['dir'] = $expected['d'];
+if (isset($expected['r'])) $arguments['rec'] = (int)$expected['r'];
+if (isset($expected['e'])) $arguments['ext'] = $expected['e'];
+$arguments['ver'] = $expected['v'];
+$arguments['all'] = $expected['a'];
 
-$ki = new Ki($args);
-$ki->display();
+
+$ki = new Ki($arguments);
+$ki->Display();
+
 
 class Ki
 {
   private $arg;
 
-  public function __construct(array $args)
+  public function __construct(array $arguments)
   {
-    $this->arg = $args;
+    $this->arg = $arguments;
   }
 
-  public function display()
+  public function Display()
   {
     echo PHP_EOL . "\e[1;34m" . $this->arg['dir'] . PHP_EOL;
-    $this->recursive($this->arg['dir'], 1);
+    $this->Recursive($this->arg['dir'], 1);
   }
 
-  private function recursive($path, $lvl)
+  private function Recursive($path, $lvl)
   {
     if ($lvl > $this->arg['rec']) return;
 
@@ -86,65 +83,68 @@ class Ki
       {
         while (($file = readdir($dir)) !== false)
         {
-          if ($file === "." || $file === "..") continue;
-          if ($this->arg['all'] || substr($file, 0, 1) !== ".")
+          if ($file === '.' || $file === '..') continue;
+          if ($this->arg['all'] || substr($file, 0, 1) !== '.')
           {
             $full_file = $path . DIRECTORY_SEPARATOR . $file;
             if (is_dir($full_file)) $dirs[] = $file;
             else if (file_exists($full_file)) 
             {
-              if ($this->arg['ext'] == '.*' || preg_match("#\." . $this->arg['ext'] . "$#", $file))
+              if ($this->arg['ext'] == '.*' || preg_match('#\.' . $this->arg['ext'] . '$#', $file))
               $files[] = $file;
             }
           }
         }
       }
       closedir($dir);
-      if (isset($files[0])) $this->displayFiles($path, $files, $lvl);
-      if (isset($dirs[0])) $this->displayDir_n_Recursive($path, $dirs, $lvl);
+
+      if (isset($files[0])) 
+        $this->DisplayFiles($path, $files, $lvl);
+      if (isset($dirs[0]))
+        $this->DisplayDirs($path, $dirs, $lvl);
     }
   }
 
-  private function displayFiles(string $path, array $files, int $lvl)
+  private function DisplayFiles(string $path, array $files, int $lvl)
   {
     $first_time = true;
+    $margin = $this->GetMargin($lvl, $path, true, true);
     natsort($files);
-    $margin = $this->getMargin($lvl, $path, true, true);
 
     foreach ($files as $file)
     {
-      $color = $this->getColor($path, $file);
+      $color = $this->GetColor($path, $file);
 
       if ($this->arg['ver']) {
-        $perms = $this->getPerms($path . DIRECTORY_SEPARATOR . $file);
-        $size = $this->getSize($path . DIRECTORY_SEPARATOR . $file);
+        $perms = $this->GetPerms($path . DIRECTORY_SEPARATOR . $file);
+        $size = $this->GetSize($path . DIRECTORY_SEPARATOR . $file);
         echo $margin . $perms . $size . $color . $file . "\e[0m" . PHP_EOL;
       }
       else {
         echo $margin . $color . $file . "\e[0m" . PHP_EOL;
       }
       if ($first_time) {
-        $margin = $this->getMargin($lvl, $path, true);
+        $margin = $this->GetMargin($lvl, $path, true);
         $first_time = false;
       }
     }
   }
 
-  private function displayDir_n_Recursive($path, $dirs, $lvl)
+  private function DisplayDirs($path, $dirs, $lvl)
   {
+    $margin = $this->GetMargin($lvl, $path);
     natsort($dirs);
-    $margin = $this->getMargin($lvl, $path);
 
     foreach ($dirs as $dir)
     {
       $color = "\e[1;34m";
 
       echo $margin . $color . $dir . DIRECTORY_SEPARATOR . "\e[0m" . PHP_EOL;
-      $this->recursive($path . DIRECTORY_SEPARATOR . $dir, $lvl + 1);
+      $this->Recursive($path . DIRECTORY_SEPARATOR . $dir, $lvl + 1);
     }
   }
 
-  private function getMargin(int $lvl, $path, $isfile = false, $first_file = false)
+  private function GetMargin(int $lvl, $path, $isfile = false, $first_file = false)
   {
     $margin = "\e[0;37m";
     $j;
@@ -158,88 +158,75 @@ class Ki
     return $margin . "\e[0m";
   }
 
-  private function getSize($file)
+  private function GetSize($file)
   {
     $size = filesize($file);
-    $Ko_size = 1024;
-    $Mo_size = 1048576;
-    $Go_size = 1073741824;
-    $Ko = 0;
-    $Mo = 0;
-    $Go = 0;
+    $KB_size = 1024;
+    $MB_size = 1048576;
+    $GB_size = 1073741824;
+    $KB = 0;
+    $MB = 0;
+    $GB = 0;
     $final_size = "";
 
-    if (($tmp = (int)($size / $Go_size)) >= 1)
-    {
-      $Go = $tmp;
-      $size -= $tmp * $Go_size; 
+    if (($tmp = (int)($size / $GB_size)) >= 1) {
+      $GB = $tmp;
+      $size -= $tmp * $GB_size; 
     }
-    if (($tmp = (int)($size / $Mo_size)) >= 1)
-    {
-      $Mo = $tmp;
-      $size -= $tmp * $Mo_size;
+    if (($tmp = (int)($size / $MB_size)) >= 1) {
+      $MB = $tmp;
+      $size -= $tmp * $MB_size;
     }
-    if (($tmp = (int)($size / $Ko_size)) >= 1)
-    {
-      $Ko = $tmp;
-      $size -= $tmp * $Ko_size;
+    if (($tmp = (int)($size / $KB_size)) >= 1) {
+      $KB = $tmp;
+      $size -= $tmp * $KB_size;
     }
     $tmp = "";
 
-    if ($Go > 0) {
-      if ($Mo >= 1000) $tmp = ',99';
-      else if ($Mo >= 100) $tmp = ',' . substr((string)$Mo, 0, 2);
-      else if ($Mo >= 10) $tmp = ',0' . substr((string)$Mo, 0, 1);
-      $final_size = $Go . $tmp . " Go";
+    if ($GB > 0) {
+      if ($MB >= 1000) $tmp = ',99';
+      else if ($MB >= 100) $tmp = ',' . substr((string)$MB, 0, 2);
+      else if ($MB >= 10) $tmp = ',0' . substr((string)$MB, 0, 1);
+      $final_size = $GB . $tmp . " GB";
     }
-    else if ($Mo > 0) {
-      if ($Ko >= 1000) $tmp = ',99';
-      else if ($Ko >= 100) $tmp = ',' . substr((string)$Ko, 0, 2);
-      else if ($Ko >= 10) $tmp = ',0' . substr((string)$Ko, 0, 1);
-      $final_size = $Mo . $tmp . " Mo";
+    else if ($MB > 0) {
+      if ($KB >= 1000) $tmp = ',99';
+      else if ($KB >= 100) $tmp = ',' . substr((string)$KB, 0, 2);
+      else if ($KB >= 10) $tmp = ',0' . substr((string)$KB, 0, 1);
+      $final_size = $MB . $tmp . " MB";
     }
-    else if ($Ko > 0) {
+    else if ($KB > 0) {
       if ($size >= 1000) $tmp = ',99';
       else if ($size >= 100) $tmp = ',' . substr((string)$size, 0, 2);
       else if ($size >= 10) $tmp = ',0' . substr((string)$size, 0, 1);
-      $final_size = $Ko . $tmp . " Ko";
+      $final_size = $KB . $tmp . " KB";
     }
-    else {
-      $final_size = $size . " oct";
-    }
+    else
+      $final_size = $size . " B";
 
     return " " . $final_size . " ";
   }
 
-  private function getPerms($file)
+  private function GetPerms($file)
   {
     $perms = fileperms($file);
 
-    if (($perms & 0xC000) == 0xC000) {
-      // Socket
+    if (($perms & 0xC000) == 0xC000)
       $info = 's';
-    } elseif (($perms & 0xA000) == 0xA000) {
-      // Lien symbolique
+    elseif (($perms & 0xA000) == 0xA000)
       $info = 'l';
-    } elseif (($perms & 0x8000) == 0x8000) {
-      // Régulier
+    elseif (($perms & 0x8000) == 0x8000)
       $info = '-';
-    } elseif (($perms & 0x6000) == 0x6000) {
-      // Block special
+    elseif (($perms & 0x6000) == 0x6000)
       $info = 'b';
-    } elseif (($perms & 0x4000) == 0x4000) {
-      // Dossier
+    elseif (($perms & 0x4000) == 0x4000)
       $info = 'd';
-    } elseif (($perms & 0x2000) == 0x2000) {
-      // Caractère spécial
+    elseif (($perms & 0x2000) == 0x2000)
       $info = 'c';
-    } elseif (($perms & 0x1000) == 0x1000) {
-      // pipe FIFO
+    elseif (($perms & 0x1000) == 0x1000)
       $info = 'p';
-    } else {
-      // Inconnu
+    else
       $info = 'u';
-    }
 
     // Root 
     $info .= (($perms & 0x0100) ? 'r' : '-');
@@ -264,20 +251,20 @@ class Ki
     return $info;
   }
 
-  private function getColor($path, $file)
+  private function GetColor($path, $file)
   {
-    $b = "\e[0;";
-    if (is_executable($path . DIRECTORY_SEPARATOR . $file)) 
-      $b = "\e[1;";
+    $b = "\e[";
+
+    $b .= is_executable($path . DIRECTORY_SEPARATOR . $file) ? '1;': '0;';
 
 		preg_match("#\.[a-zA-Z3-4]+$#", $file, $ext);
 
-		if (isset($ext[0])) {
+		if (isset($ext[0]))
 			$ext = strToLower(substr($ext[0], 1));
-		}else return $b . '35m';
+		else return $b . '35m';
 
 		switch ($ext) {
-		//IMAGE
+		//IMG
 			case 'jpg' :
 			case 'jpeg':
 			case 'bmp' :
@@ -360,7 +347,7 @@ class Ki
   }
 }
 
-function help()
+function Help()
 {
   return "\e[7;31m                             Mode d'emploi :                                \e[0m" . PHP_EOL . PHP_EOL
     . "\e[1;31mki \e[0m[\e[1;31m-r\e[0m=\e[0;33m\"recursive\"\e[0m]\e[1;32m?\e[0m"
