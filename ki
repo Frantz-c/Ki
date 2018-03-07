@@ -1,0 +1,379 @@
+#!/usr/bin/php
+<?php
+
+/*
+** "ki"
+**
+**  ki [-d=directory]? [-v]? [-a]? [-rec=\d]?
+*/
+
+
+require "/home/frantz/SCRIPTS/cmdArg.php";
+
+$args = [
+  "dir" => ".", 
+  "ver" => false, 
+  "all" => false, 
+  "rec" => 5,
+  "ext" => ".*"
+];
+
+$defArgs = [
+  'd:' => 'directory',
+  'v' => 'verbose',
+  'a' => 'all',
+  'r:' => 'recursive',
+  'h' => 'help',
+  'e:' => 'extension'
+];
+
+$error = [];
+
+$nb_files = array(0, 0);
+
+$cmdArg = new CmdArg($defArgs, $argv);
+$defArgs = $cmdArg->check($error);
+
+if ($defArgs === ARG_ERROR)
+{
+  echo "\e[1m\e[7;31m";
+  foreach ($error as $e) {
+    echo "Argument '$e' incorrect !" . PHP_EOL;
+  }
+  echo "\e[0m";
+  return ARG_ERROR;
+}
+else if ($defArgs === USR_ERROR) return USR_ERROR;
+else if ($defArgs['h'] === true) {
+  echo help();
+  return 0;
+}
+
+if (isset($defArgs['d'])) $args['dir'] = $defArgs['d'];
+if (isset($defArgs['r'])) $args['rec'] = (int)$defArgs['r'];
+if (isset($defArgs['e'])) $args['ext'] = $defArgs['e'];
+$args['ver'] = $defArgs['v'];
+$args['all'] = $defArgs['a'];
+
+$ki = new Ki($args);
+$ki->display();
+
+class Ki
+{
+  private $arg;
+
+  public function __construct(array $args)
+  {
+    $this->arg = $args;
+  }
+
+  public function display()
+  {
+    echo PHP_EOL . "\e[1;34m" . $this->arg['dir'] . PHP_EOL;
+    $this->recursive($this->arg['dir'], 1);
+  }
+
+  private function recursive($path, $lvl)
+  {
+    if ($lvl > $this->arg['rec']) return;
+
+    $files = [];
+    $dirs = [];
+
+    if (is_dir($path)) 
+    {
+      if (($dir = opendir($path)) !== false)
+      {
+        while (($file = readdir($dir)) !== false)
+        {
+          if ($file === "." || $file === "..") continue;
+          if ($this->arg['all'] || substr($file, 0, 1) !== ".")
+          {
+            $full_file = $path . DIRECTORY_SEPARATOR . $file;
+            if (is_dir($full_file)) $dirs[] = $file;
+            else if (file_exists($full_file)) 
+            {
+              if ($this->arg['ext'] == '.*' || preg_match("#\." . $this->arg['ext'] . "$#", $file))
+              $files[] = $file;
+            }
+          }
+        }
+      }
+      closedir($dir);
+      if (isset($files[0])) $this->displayFiles($path, $files, $lvl);
+      if (isset($dirs[0])) $this->displayDir_n_Recursive($path, $dirs, $lvl);
+    }
+  }
+
+  private function displayFiles(string $path, array $files, int $lvl)
+  {
+    $first_time = true;
+    natsort($files);
+    $margin = $this->getMargin($lvl, $path, true, true);
+
+    foreach ($files as $file)
+    {
+      $color = $this->getColor($path, $file);
+
+      if ($this->arg['ver']) {
+        $perms = $this->getPerms($path . DIRECTORY_SEPARATOR . $file);
+        $size = $this->getSize($path . DIRECTORY_SEPARATOR . $file);
+        echo $margin . $perms . $size . $color . $file . "\e[0m" . PHP_EOL;
+      }
+      else {
+        echo $margin . $color . $file . "\e[0m" . PHP_EOL;
+      }
+      if ($first_time) {
+        $margin = $this->getMargin($lvl, $path, true);
+        $first_time = false;
+      }
+    }
+  }
+
+  private function displayDir_n_Recursive($path, $dirs, $lvl)
+  {
+    natsort($dirs);
+    $margin = $this->getMargin($lvl, $path);
+
+    foreach ($dirs as $dir)
+    {
+      $color = "\e[1;34m";
+
+      echo $margin . $color . $dir . DIRECTORY_SEPARATOR . "\e[0m" . PHP_EOL;
+      $this->recursive($path . DIRECTORY_SEPARATOR . $dir, $lvl + 1);
+    }
+  }
+
+  private function getMargin(int $lvl, $path, $isfile = false, $first_file = false)
+  {
+    $margin = "\e[0;37m";
+    $j;
+    for ($j = 1; $j < $lvl; $j++) {
+      $margin .= '-';
+      if ($j + 1 < $lvl) $margin .= "\e[0;36m+\e[0;37m";
+    }
+    if ($j > 1) $margin .= '>';
+    $margin .= ' ';
+    if (!$isfile) $margin .= $path . DIRECTORY_SEPARATOR;
+    return $margin . "\e[0m";
+  }
+
+  private function getSize($file)
+  {
+    $size = filesize($file);
+    $Ko_size = 1024;
+    $Mo_size = 1048576;
+    $Go_size = 1073741824;
+    $Ko = 0;
+    $Mo = 0;
+    $Go = 0;
+    $final_size = "";
+
+    if (($tmp = (int)($size / $Go_size)) >= 1)
+    {
+      $Go = $tmp;
+      $size -= $tmp * $Go_size; 
+    }
+    if (($tmp = (int)($size / $Mo_size)) >= 1)
+    {
+      $Mo = $tmp;
+      $size -= $tmp * $Mo_size;
+    }
+    if (($tmp = (int)($size / $Ko_size)) >= 1)
+    {
+      $Ko = $tmp;
+      $size -= $tmp * $Ko_size;
+    }
+    $tmp = "";
+
+    if ($Go > 0) {
+      if ($Mo >= 1000) $tmp = ',99';
+      else if ($Mo >= 100) $tmp = ',' . substr((string)$Mo, 0, 2);
+      else if ($Mo >= 10) $tmp = ',0' . substr((string)$Mo, 0, 1);
+      $final_size = $Go . $tmp . " Go";
+    }
+    else if ($Mo > 0) {
+      if ($Ko >= 1000) $tmp = ',99';
+      else if ($Ko >= 100) $tmp = ',' . substr((string)$Ko, 0, 2);
+      else if ($Ko >= 10) $tmp = ',0' . substr((string)$Ko, 0, 1);
+      $final_size = $Mo . $tmp . " Mo";
+    }
+    else if ($Ko > 0) {
+      if ($size >= 1000) $tmp = ',99';
+      else if ($size >= 100) $tmp = ',' . substr((string)$size, 0, 2);
+      else if ($size >= 10) $tmp = ',0' . substr((string)$size, 0, 1);
+      $final_size = $Ko . $tmp . " Ko";
+    }
+    else {
+      $final_size = $size . " oct";
+    }
+
+    return " " . $final_size . " ";
+  }
+
+  private function getPerms($file)
+  {
+    $perms = fileperms($file);
+
+    if (($perms & 0xC000) == 0xC000) {
+      // Socket
+      $info = 's';
+    } elseif (($perms & 0xA000) == 0xA000) {
+      // Lien symbolique
+      $info = 'l';
+    } elseif (($perms & 0x8000) == 0x8000) {
+      // Régulier
+      $info = '-';
+    } elseif (($perms & 0x6000) == 0x6000) {
+      // Block special
+      $info = 'b';
+    } elseif (($perms & 0x4000) == 0x4000) {
+      // Dossier
+      $info = 'd';
+    } elseif (($perms & 0x2000) == 0x2000) {
+      // Caractère spécial
+      $info = 'c';
+    } elseif (($perms & 0x1000) == 0x1000) {
+      // pipe FIFO
+      $info = 'p';
+    } else {
+      // Inconnu
+      $info = 'u';
+    }
+
+    // Root 
+    $info .= (($perms & 0x0100) ? 'r' : '-');
+    $info .= (($perms & 0x0080) ? 'w' : '-');
+    $info .= (($perms & 0x0040) ?
+        (($perms & 0x0800) ? 's' : 'x' ) :
+        (($perms & 0x0800) ? 'S' : '-'));
+
+    // Groupe
+    $info .= (($perms & 0x0020) ? 'r' : '-');
+    $info .= (($perms & 0x0010) ? 'w' : '-');
+    $info .= (($perms & 0x0008) ?
+        (($perms & 0x0400) ? 's' : 'x' ) :
+        (($perms & 0x0400) ? 'S' : '-'));
+
+    // Tout le monde
+    $info .= (($perms & 0x0004) ? 'r' : '-');
+    $info .= (($perms & 0x0002) ? 'w' : '-');
+    $info .= (($perms & 0x0001) ?
+        (($perms & 0x0200) ? 't' : 'x' ) :
+        (($perms & 0x0200) ? 'T' : '-'));
+    return $info;
+  }
+
+  private function getColor($path, $file)
+  {
+    $b = "\e[0;";
+    if (is_executable($path . DIRECTORY_SEPARATOR . $file)) 
+      $b = "\e[1;";
+
+		preg_match("#\.[a-zA-Z3-4]+$#", $file, $ext);
+
+		if (isset($ext[0])) {
+			$ext = strToLower(substr($ext[0], 1));
+		}else return $b . '35m';
+
+		switch ($ext) {
+		//IMAGE
+			case 'jpg' :
+			case 'jpeg':
+			case 'bmp' :
+			case 'gif' :
+			case 'png' :
+			case 'tiff':
+			case 'tif' : return $b . "33m";
+		//SOUND
+			case 'mp3' :
+			case 'wma' :
+			case 'wave':
+			case 'riff':
+			case 'aiff':
+			case 'raw' :
+			case 'ogg' : return $b . "37m";
+		//VIDEO
+			case 'mp4' :
+			case 'avi' :
+			case 'wmv' :
+			case 'mov' :
+			case 'flv' :
+			case 'mpg' :
+			case 'rmvb': return $b . "32m";
+		//TEXT
+			case 'txt':
+			case 'odt':
+			case 'xls':
+			case 'doc':
+			case 'rtf':
+			case 'odb':
+			case 'odc':
+			case 'odf': 
+			case 'odg': 
+			case 'odp': 
+			case 'ods': 
+			case 'oxt': 
+			case 'mus': 
+			case 'gp3': 
+			case 'gp4': 
+			case 'gp5': 
+			case 'gp6': 
+			case 'pdf': return $b . "36m";
+		//PROGRAMMING
+			case 'php'  : 
+			case 'bat'  : 
+			case 'asm'  : 
+			case 'html' : 
+			case 'css'  : 
+			case 'c'    : 
+			case 'cs'   : 
+			case 'scss' : 
+			case 'sass' : 
+			case 'cpp'  : 
+			case 'py'   : 
+			case 'js'   : 
+			case 'json' : 
+			case 'xml'  : 
+			case 'sql'  : 
+			case 'ksh'  : 
+			case 'sh'   : 
+			case 'pyw'  : 
+			case 'rb'   : 
+			case 'xhtml': 
+			case 'htm'  : 
+			case 'vim'  : 
+			case 'atom' : 
+			case 'h'    : 
+			case 'java' : return $b . "31m";
+		//
+			case 'a'  : 
+			case 'o'  : 
+			case 'iso': 
+      case 'exe': 
+      case 'com': 
+      case 'elf': return $b . "34m";
+		//
+			default : return $b . "35m";
+		}
+
+  }
+}
+
+function help()
+{
+  return "\e[7;31m                             Mode d'emploi :                                \e[0m" . PHP_EOL . PHP_EOL
+    . "\e[1;31mki \e[0m[\e[1;31m-r\e[0m=\e[0;33m\"recursive\"\e[0m]\e[1;32m?\e[0m"
+    . " [\e[1;31m-d\e[0m=\e[0;33m\"directory\"\e[0m]\e[1;32m?\e[0m"
+    . " [\e[1;31m-e\e[0m=\e[0;33m\"extension\"\e[0m]\e[1;32m?\e[0m"
+    . " [\e[1;31m-a\e[0m]\e[1;32m?\e[0m"
+    . " [\e[1;31m-v\e[0m]\e[1;32m?\e[0m"
+    . " [\e[1;31m-h\e[0m]\e[1;32m?" . PHP_EOL . PHP_EOL
+    . "\e[0;32mArguments : " . PHP_EOL
+    . "  \e[0;36m-r / --recursive : \e[0;37mRecursive level \e[0m(\e[1;34minteger\e[0m)" . PHP_EOL
+    . "  \e[0;36m-d / --directory : \e[0;37mRoot's directory of the tree \e[0m(\e[1;34mstring\e[0m)" . PHP_EOL
+    . "  \e[0;36m-a / --all       : \e[0;37mPrinting all the files and directories \e[0m(\e[1;34mboolean\e[0m)" . PHP_EOL
+    . "  \e[0;36m-v / --verbose   : \e[0;37mPrinting files informations \e[0m(\e[1;34mboolean\e[0m)" . PHP_EOL
+    . "  \e[0;36m-e / --extension : \e[0;37mPrinting only the files who have the same extension \e[0m(\e[1;34mregex\e[0m)" . PHP_EOL
+    . "  \e[0;36m-h / --help      : \e[0;37mPrinting help menu (and quit whitout to print the tree) \e[0m(\e[1;34mboolean\e[0m)" . PHP_EOL . PHP_EOL;
+}
