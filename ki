@@ -2,7 +2,7 @@
 <?php
 
 
-require "/home/frantz/SCRIPTS/cliarg.php";
+require "cliarg.php";
 
 
 $arguments = [
